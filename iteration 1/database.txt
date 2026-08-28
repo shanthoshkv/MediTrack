@@ -1,0 +1,393 @@
+-- ============================================================
+-- MediTrack HMS — Hospital RFID Management System
+-- Database Schema v3.0
+-- ============================================================
+
+CREATE DATABASE IF NOT EXISTS rfid_inventory CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE rfid_inventory;
+
+CREATE TABLE IF NOT EXISTS system_logs (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    log_level  ENUM('info','warning','error','critical') NOT NULL DEFAULT 'info',
+    source     VARCHAR(100) NOT NULL,
+    message    TEXT NOT NULL,
+    ip_address VARCHAR(45) NULL,
+    user_id    INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_level(log_level), INDEX idx_source(source), INDEX idx_created(created_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS admins (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    full_name  VARCHAR(120) NOT NULL,
+    username   VARCHAR(50) UNIQUE NOT NULL,
+    password   VARCHAR(255) NOT NULL,
+    email      VARCHAR(150) NULL,
+    role       ENUM('super_admin','manager','viewer','biomedical','pharmacist','nurse_admin') DEFAULT 'viewer',
+    department VARCHAR(100) NULL,
+    status     ENUM('active','disabled') DEFAULT 'active',
+    last_login DATETIME NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS suppliers (
+    id             INT AUTO_INCREMENT PRIMARY KEY,
+    name           VARCHAR(150) NOT NULL,
+    contact_person VARCHAR(120) NULL,
+    email          VARCHAR(150) NULL,
+    phone          VARCHAR(30) NULL,
+    address        TEXT NULL,
+    city           VARCHAR(80) NULL,
+    country        VARCHAR(80) DEFAULT 'India',
+    gst_number     VARCHAR(20) NULL,
+    supplier_type  ENUM('medical_equipment','pharmaceuticals','consumables','general','lab_reagents','it_equipment') DEFAULT 'general',
+    rating         TINYINT DEFAULT 3,
+    is_active      TINYINT(1) DEFAULT 1,
+    notes          TEXT NULL,
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS locations (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    parent_id       INT NULL,
+    location_code   VARCHAR(30) NULL UNIQUE,
+    location_name   VARCHAR(120) NOT NULL,
+    location_type   ENUM('building','floor','ward','room','bed','storage','pharmacy','lab','ot','icu','emergency','blood_bank','cssd','reception','corridor') DEFAULT 'ward',
+    zone            VARCHAR(80) NOT NULL DEFAULT 'General',
+    reader_id       VARCHAR(50) NULL UNIQUE,
+    reader_type     ENUM('entry','exit','both') DEFAULT 'both',
+    api_key         VARCHAR(100) NULL,
+    capacity        INT DEFAULT 0,
+    temperature_min DECIMAL(5,2) NULL,
+    temperature_max DECIMAL(5,2) NULL,
+    last_heartbeat  DATETIME NULL,
+    is_active       TINYINT(1) DEFAULT 1,
+    notes           TEXT NULL,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (parent_id) REFERENCES locations(id) ON DELETE SET NULL,
+    INDEX idx_parent(parent_id), INDEX idx_reader(reader_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS categories (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    parent_id       INT NULL,
+    name            VARCHAR(100) NOT NULL,
+    code            VARCHAR(20) NULL UNIQUE,
+    description     TEXT NULL,
+    requires_expiry TINYINT(1) DEFAULT 0,
+    FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS items (
+    id                     INT AUTO_INCREMENT PRIMARY KEY,
+    uid                    VARCHAR(50) UNIQUE NOT NULL COMMENT 'RFID Tag UID',
+    item_name              VARCHAR(150) NOT NULL,
+    sku                    VARCHAR(80) NULL UNIQUE,
+    barcode                VARCHAR(80) NULL,
+    serial_number          VARCHAR(100) NULL UNIQUE,
+    item_type              VARCHAR(80) NOT NULL,
+    item_category          VARCHAR(80) NOT NULL,
+    category_id            INT NULL,
+    brand                  VARCHAR(100) NULL,
+    model_number           VARCHAR(100) NULL,
+    description            TEXT NULL,
+    quantity               INT NOT NULL DEFAULT 1,
+    min_stock_level        INT DEFAULT 0,
+    max_stock_level        INT DEFAULT 9999,
+    reorder_quantity       INT DEFAULT 1,
+    unit_of_measure        VARCHAR(30) DEFAULT 'unit',
+    unit_cost              DECIMAL(12,2) DEFAULT 0.00,
+    unit_price             DECIMAL(12,2) DEFAULT 0.00,
+    currency               VARCHAR(5) DEFAULT 'INR',
+    location_id            INT NULL,
+    department             VARCHAR(120) NULL,
+    assigned_to            VARCHAR(120) NULL,
+    assigned_patient_id    INT NULL,
+    bin_location           VARCHAR(50) NULL,
+    supplier_id            INT NULL,
+    purchase_order_no      VARCHAR(80) NULL,
+    invoice_number         VARCHAR(80) NULL,
+    purchase_date          DATE NULL,
+    warranty_expiry        DATE NULL,
+    manufacture_date       DATE NULL,
+    expiry_date            DATE NULL,
+    last_service_date      DATE NULL,
+    next_service_date      DATE NULL,
+    last_seen              DATETIME NULL,
+    registered_date        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    lifecycle              ENUM('active','maintenance','expiring_soon','expired','retired','disposed') DEFAULT 'active',
+    status                 ENUM('in_stock','checked_out','in_transit','quarantined','missing','damaged','under_repair','sterilizing') DEFAULT 'in_stock',
+    condition_grade        ENUM('new','good','fair','poor','scrap') DEFAULT 'new',
+    weight_kg              DECIMAL(10,3) NULL,
+    dimensions_cm          VARCHAR(50) NULL,
+    color                  VARCHAR(50) NULL,
+    image_url              VARCHAR(255) NULL,
+    is_serialized          TINYINT(1) DEFAULT 1,
+    is_perishable          TINYINT(1) DEFAULT 0,
+    requires_approval      TINYINT(1) DEFAULT 0,
+    is_hazardous           TINYINT(1) DEFAULT 0,
+    is_controlled_drug     TINYINT(1) DEFAULT 0,
+    requires_sterilization TINYINT(1) DEFAULT 0,
+    last_sterilized_at     DATETIME NULL,
+    notes                  TEXT NULL,
+    custom_fields          JSON NULL,
+    FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL,
+    FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL,
+    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+    INDEX idx_uid(uid), INDEX idx_status(status), INDEX idx_lifecycle(lifecycle),
+    INDEX idx_expiry(expiry_date), INDEX idx_location(location_id), INDEX idx_dept(department)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS patients (
+    id                 INT AUTO_INCREMENT PRIMARY KEY,
+    rfid_uid           VARCHAR(50) UNIQUE NULL,
+    patient_id         VARCHAR(30) UNIQUE NOT NULL,
+    full_name          VARCHAR(150) NOT NULL,
+    dob                DATE NULL,
+    age                INT NULL,
+    gender             ENUM('male','female','other') NOT NULL DEFAULT 'male',
+    blood_group        ENUM('A+','A-','B+','B-','AB+','AB-','O+','O-','Unknown') DEFAULT 'Unknown',
+    phone              VARCHAR(20) NULL,
+    emergency_contact  VARCHAR(120) NULL,
+    emergency_phone    VARCHAR(20) NULL,
+    address            TEXT NULL,
+    admission_date     DATETIME NULL,
+    discharge_date     DATETIME NULL,
+    ward_id            INT NULL,
+    bed_number         VARCHAR(20) NULL,
+    attending_doctor   VARCHAR(120) NULL,
+    diagnosis          TEXT NULL,
+    admission_type     ENUM('emergency','elective','transfer','outpatient') DEFAULT 'elective',
+    status             ENUM('admitted','discharged','transferred','icu','critical','deceased','outpatient') DEFAULT 'admitted',
+    diet_type          VARCHAR(80) NULL,
+    allergy_notes      TEXT NULL,
+    insurance_provider VARCHAR(100) NULL,
+    insurance_policy   VARCHAR(80) NULL,
+    notes              TEXT NULL,
+    created_by         VARCHAR(80) NULL,
+    created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (ward_id) REFERENCES locations(id) ON DELETE SET NULL,
+    INDEX idx_rfid(rfid_uid), INDEX idx_status(status), INDEX idx_ward(ward_id), INDEX idx_pid(patient_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS staff_members (
+    id                 INT AUTO_INCREMENT PRIMARY KEY,
+    rfid_uid           VARCHAR(50) UNIQUE NULL,
+    employee_id        VARCHAR(30) UNIQUE NOT NULL,
+    full_name          VARCHAR(150) NOT NULL,
+    designation        VARCHAR(100) NULL,
+    department         VARCHAR(120) NULL,
+    phone              VARCHAR(20) NULL,
+    email              VARCHAR(150) NULL,
+    shift              ENUM('morning','afternoon','night','on_call') DEFAULT 'morning',
+    status             ENUM('active','on_leave','inactive') DEFAULT 'active',
+    last_seen_location INT NULL,
+    last_seen_at       DATETIME NULL,
+    notes              TEXT NULL,
+    created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (last_seen_location) REFERENCES locations(id) ON DELETE SET NULL,
+    INDEX idx_rfid(rfid_uid), INDEX idx_status(status)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS maintenance_logs (
+    id               INT AUTO_INCREMENT PRIMARY KEY,
+    item_id          INT NOT NULL,
+    maintenance_type ENUM('preventive','corrective','calibration','inspection','sterilization','amc','installation') NOT NULL,
+    scheduled_date   DATE NULL,
+    performed_date   DATE NULL,
+    performed_by     VARCHAR(120) NULL,
+    vendor_name      VARCHAR(150) NULL,
+    cost             DECIMAL(10,2) DEFAULT 0,
+    status           ENUM('scheduled','in_progress','completed','overdue','cancelled') DEFAULT 'scheduled',
+    findings         TEXT NULL,
+    next_due_date    DATE NULL,
+    certificate_no   VARCHAR(80) NULL,
+    notes            TEXT NULL,
+    created_by       VARCHAR(80) NULL,
+    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
+    INDEX idx_item(item_id), INDEX idx_status(status), INDEX idx_scheduled(scheduled_date)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS blood_units (
+    id               INT AUTO_INCREMENT PRIMARY KEY,
+    unit_id          VARCHAR(30) UNIQUE NOT NULL,
+    rfid_uid         VARCHAR(50) UNIQUE NULL,
+    blood_group      ENUM('A+','A-','B+','B-','AB+','AB-','O+','O-') NOT NULL,
+    component        ENUM('whole_blood','packed_rbc','plasma','platelets','cryoprecipitate','ffp') NOT NULL,
+    volume_ml        INT NOT NULL DEFAULT 350,
+    collection_date  DATE NOT NULL,
+    expiry_date      DATE NOT NULL,
+    donor_id         VARCHAR(30) NULL,
+    status           ENUM('available','reserved','issued','discarded','quarantine','testing') DEFAULT 'available',
+    location_id      INT NULL,
+    issued_to_patient INT NULL,
+    issued_at        DATETIME NULL,
+    issued_by        VARCHAR(80) NULL,
+    cross_match_done TINYINT(1) DEFAULT 0,
+    notes            TEXT NULL,
+    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL,
+    FOREIGN KEY (issued_to_patient) REFERENCES patients(id) ON DELETE SET NULL,
+    INDEX idx_group(blood_group), INDEX idx_status(status), INDEX idx_expiry(expiry_date)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS scan_logs (
+    id               INT AUTO_INCREMENT PRIMARY KEY,
+    uid              VARCHAR(50) NOT NULL,
+    item_id          INT NULL,
+    patient_id       INT NULL,
+    staff_id         INT NULL,
+    from_location_id INT NULL,
+    to_location_id   INT NULL,
+    reader_id        VARCHAR(50) NOT NULL,
+    action_type      ENUM('scanned','transfer','checkout','return','manual_move','conflict_suppressed','cycle_count','disposal','entry','exit','staff_scan','patient_scan') NOT NULL,
+    performed_by     VARCHAR(80) NULL,
+    notes            TEXT NULL,
+    scan_time        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_scan_time(scan_time), INDEX idx_uid_time(uid, scan_time),
+    INDEX idx_item(item_id), INDEX idx_patient(patient_id), INDEX idx_action(action_type)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS approvals (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    item_id         INT NOT NULL,
+    request_type    ENUM('checkout','checkin','transfer','retirement','disposal','repair','sterilization') NOT NULL,
+    requested_by    VARCHAR(80) NOT NULL,
+    target_assignee VARCHAR(80) NULL,
+    from_location   INT NULL,
+    to_location     INT NULL,
+    reason          TEXT NULL,
+    status          ENUM('pending','approved','rejected') DEFAULT 'pending',
+    reviewed_by     VARCHAR(80) NULL,
+    reviewed_at     DATETIME NULL,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (item_id) REFERENCES items(id),
+    INDEX idx_status(status)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS physical_counts (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    count_code   VARCHAR(30) NULL UNIQUE,
+    location_id  INT NOT NULL,
+    initiated_by VARCHAR(80) NULL,
+    expected_qty INT NOT NULL DEFAULT 0,
+    scanned_qty  INT DEFAULT 0,
+    variance     INT GENERATED ALWAYS AS (scanned_qty - expected_qty) STORED,
+    status       ENUM('in_progress','completed','cancelled') DEFAULT 'in_progress',
+    notes        TEXT NULL,
+    started_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME NULL,
+    FOREIGN KEY (location_id) REFERENCES locations(id),
+    INDEX idx_status(status)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    item_id      INT NULL,
+    patient_id   INT NULL,
+    alert_type   ENUM('unknown_tag','low_stock','expiry_warning','reader_offline','conflict','missing_asset','unauthorized_move','maintenance_due','patient_alert','blood_expiry','controlled_drug') DEFAULT 'unknown_tag',
+    severity     ENUM('info','warning','critical') NOT NULL,
+    message      VARCHAR(500) NOT NULL,
+    action_taken VARCHAR(255) NULL,
+    is_resolved  TINYINT(1) DEFAULT 0,
+    resolved_by  VARCHAR(80) NULL,
+    resolved_at  DATETIME NULL,
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE SET NULL,
+    INDEX idx_resolved(is_resolved), INDEX idx_severity(severity), INDEX idx_created(created_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS purchase_orders (
+    id            INT AUTO_INCREMENT PRIMARY KEY,
+    po_number     VARCHAR(50) UNIQUE NOT NULL,
+    supplier_id   INT NULL,
+    status        ENUM('draft','sent','confirmed','received','cancelled') DEFAULT 'draft',
+    total_amount  DECIMAL(12,2) DEFAULT 0.00,
+    currency      VARCHAR(5) DEFAULT 'INR',
+    order_date    DATE NULL,
+    expected_date DATE NULL,
+    received_date DATE NULL,
+    created_by    VARCHAR(80) NULL,
+    notes         TEXT NULL,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+-- ============================================================
+-- SEED DATA — HOSPITAL
+-- ============================================================
+
+INSERT IGNORE INTO categories (id, parent_id, name, code, requires_expiry) VALUES
+(1,NULL,'Medical Equipment','MED_EQ',0),(2,NULL,'Pharmaceuticals','PHARMA',1),
+(3,NULL,'Consumables','CONS',1),(4,NULL,'Surgical Instruments','SURG',0),
+(5,NULL,'Lab Equipment','LAB_EQ',0),(6,NULL,'IT Equipment','IT_EQ',0),
+(7,NULL,'Furniture & Fixtures','FURN',0),(8,NULL,'Safety Equipment','SAFE',0),
+(9,NULL,'Linen & Clothing','LINEN',0),(10,NULL,'Oxygen & Gas','GAS',1),
+(11,1,'Life Support','LIFE_SUP',0),(12,1,'Diagnostic','DIAG',0),
+(13,1,'Patient Monitoring','PAT_MON',0),(14,2,'Controlled Drugs','CTRL_DRG',1),
+(15,2,'IV Fluids','IV_FLUID',1),(16,3,'PPE','PPE',1),
+(17,3,'Syringes & Needles','SYR',1),(18,4,'Orthopaedic Implants','ORTHO',0);
+
+INSERT IGNORE INTO suppliers (id,name,contact_person,email,phone,city,supplier_type) VALUES
+(1,'Medline India Pvt Ltd','Dr. Suresh Nair','snair@medline.in','9876543210','Mumbai','medical_equipment'),
+(2,'Sun Pharma Distributors','Kavitha Reddy','kreddy@sunpharma.com','9123456780','Hyderabad','pharmaceuticals'),
+(3,'B. Braun Medical India','Rajan Pillai','rpillai@bbraun.com','9988776655','Bengaluru','consumables'),
+(4,'Philips Healthcare India','Asha Menon','amenon@philips.com','9876501234','Pune','medical_equipment'),
+(5,'Abbott India Ltd','Mohan Krishnan','mkrishnan@abbott.com','9765432100','Chennai','pharmaceuticals');
+
+INSERT IGNORE INTO locations (id,parent_id,location_code,location_name,location_type,zone,reader_id,reader_type,api_key,capacity) VALUES
+(1,NULL,'HOSP','City General Hospital','building','Main',NULL,'both',NULL,2000),
+(2,1,'GF','Ground Floor','floor','GF',NULL,'both',NULL,500),
+(3,1,'1F','First Floor','floor','1F',NULL,'both',NULL,500),
+(4,1,'2F','Second Floor','floor','2F',NULL,'both',NULL,400),
+(5,2,'ER','Emergency Room','emergency','Emergency','ESP32_ER','both','KEY_ER',60),
+(6,2,'OPD','OPD Reception','reception','OPD','ESP32_OPD','entry','KEY_OPD',100),
+(7,2,'PHARM','Main Pharmacy','pharmacy','Pharmacy','ESP32_PH','both','KEY_PH',200),
+(8,2,'BB','Blood Bank','blood_bank','Blood Bank','ESP32_BB','both','KEY_BB',100),
+(9,2,'LAB','Pathology Lab','lab','Lab','ESP32_LB','both','KEY_LB',80),
+(10,3,'ICU','Intensive Care Unit','icu','ICU','ESP32_ICU','both','KEY_ICU',20),
+(11,3,'OT1','Operation Theatre 1','ot','OT','ESP32_OT1','entry','KEY_OT1',10),
+(12,3,'OT2','Operation Theatre 2','ot','OT','ESP32_OT2','entry','KEY_OT2',10),
+(13,3,'CSSD','CSSD / Sterile Supply','cssd','CSSD','ESP32_CSS','both','KEY_CSS',200),
+(14,3,'GW1','General Ward 1 (Male)','ward','Wards','ESP32_GW1','both','KEY_GW1',40),
+(15,3,'GW2','General Ward 2 (Female)','ward','Wards','ESP32_GW2','both','KEY_GW2',40),
+(16,4,'MATW','Maternity Ward','ward','Maternity','ESP32_MAT','both','KEY_MAT',30),
+(17,4,'PEDW','Paediatric Ward','ward','Paediatrics','ESP32_PED','both','KEY_PED',25),
+(18,4,'SRGW','Surgical Ward','ward','Surgical','ESP32_SGW','both','KEY_SGW',30),
+(19,2,'BIOMED','Biomedical Eng. Store','storage','BioMed','ESP32_BM','both','KEY_BM',300),
+(20,2,'CSTORE','Central Medical Store','storage','Store','ESP32_ST','both','KEY_ST',1000);
+
+INSERT IGNORE INTO staff_members (employee_id,rfid_uid,full_name,designation,department,shift) VALUES
+('EMP-001','STAFF-0001','Dr. Priya Ramesh','Chief Medical Officer','Administration','morning'),
+('EMP-002','STAFF-0002','Dr. Arun Kumar','Resident Doctor','Emergency','morning'),
+('EMP-003','STAFF-0003','Nurse Sunita Devi','Head Nurse','ICU','morning'),
+('EMP-004','STAFF-0004','Ravi Teja','Biomedical Engineer','BioMed','morning'),
+('EMP-005','STAFF-0005','Meena Pillai','Pharmacist','Pharmacy','morning');
+
+INSERT IGNORE INTO items (uid,item_name,sku,item_type,item_category,category_id,brand,model_number,quantity,unit_cost,location_id,department,status,lifecycle,warranty_expiry,supplier_id,condition_grade,requires_sterilization,is_perishable) VALUES
+('MED-0001','Philips MX500 Patient Monitor','MON-PH-MX500','Equipment','Patient Monitoring',13,'Philips','MX500',1,280000,10,'ICU','in_stock','active','2027-01-01',4,'new',0,0),
+('MED-0002','Drager Evita 4 Ventilator','VENT-DRG-E4','Equipment','Life Support',11,'Drager','Evita 4',1,850000,10,'ICU','in_stock','active','2026-06-01',1,'good',0,0),
+('MED-0003','GE MAC 5500 ECG Machine','ECG-GE-5500','Equipment','Diagnostic',12,'GE','MAC 5500',1,180000,5,'Emergency','in_stock','active','2026-03-01',1,'good',0,0),
+('MED-0004','Autoclave Sterilizer 50L','AUTCL-50L','Equipment','Surgical Instruments',4,'Tuttnauer','ELV 911',1,320000,13,'CSSD','in_stock','active','2025-12-01',1,'new',0,0),
+('MED-0005','Surgical Scissor Mayo 14cm','SURG-SCI-14','Instrument','Surgical Instruments',4,'Stille','Mayo-14',10,2500,13,'CSSD','in_stock','active',NULL,1,'good',1,0),
+('MED-0006','Amoxicillin 500mg Cap x100','PHARMA-AMX-500','Medicine','Pharmaceuticals',2,'Cipla','Amox-500',50,120,7,'Pharmacy','in_stock','active',NULL,2,'new',0,1),
+('MED-0007','Normal Saline 0.9% 500ml','IV-NS-500','IV Fluid','IV Fluids',15,'B. Braun','NS-500',200,45,7,'Pharmacy','in_stock','active',NULL,3,'new',0,1),
+('MED-0008','Hospital Bed Motorized','BED-MOT-001','Furniture','Furniture & Fixtures',7,'Stryker','InTouch 2030',30,85000,14,'General Ward','in_stock','active','2028-01-01',1,'good',0,0),
+('MED-0009','Wheelchair Standard Steel','WC-STD-001','Equipment','Medical Equipment',1,'Karma','S-Ergo',15,8500,6,'OPD','in_stock','active',NULL,1,'good',0,0),
+('MED-0010','Oxygen Cylinder D-Type 46L','OXY-D-46L','Equipment','Oxygen & Gas',10,'INOX','D-Type',20,4500,20,'Central Store','in_stock','active',NULL,1,'good',0,1);
+
+INSERT IGNORE INTO patients (patient_id,rfid_uid,full_name,dob,gender,blood_group,phone,ward_id,bed_number,attending_doctor,diagnosis,admission_type,status) VALUES
+('HOSP-2024-001','PAT-0001','Rajesh Sharma','1978-05-12','male','B+','9876543000',10,'ICU-01','Dr. Arun Kumar','Acute Myocardial Infarction','emergency','icu'),
+('HOSP-2024-002','PAT-0002','Sunita Verma','1990-08-23','female','A+','9876543001',15,'GW2-05','Dr. Priya Ramesh','Post-Op Appendicectomy','elective','admitted'),
+('HOSP-2024-003','PAT-0003','Mohammed Iqbal','1965-03-01','male','O+','9876543002',14,'GW1-03','Dr. Arun Kumar','COPD Exacerbation','emergency','admitted');
+
+INSERT IGNORE INTO blood_units (unit_id,blood_group,component,volume_ml,collection_date,expiry_date,status,location_id) VALUES
+('BLD-2024-001','O+','packed_rbc',350,'2024-01-10','2024-03-10','available',8),
+('BLD-2024-002','A+','plasma',250,'2024-01-11','2025-01-11','available',8),
+('BLD-2024-003','B+','platelets',300,'2024-01-12','2024-01-17','available',8);
+
+INSERT IGNORE INTO maintenance_logs (item_id,maintenance_type,scheduled_date,status,created_by) VALUES
+(1,'preventive','2024-03-01','scheduled','system'),
+(2,'calibration','2024-02-15','scheduled','system'),
+(3,'preventive','2024-04-01','scheduled','system');

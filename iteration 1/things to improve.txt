@@ -1,0 +1,7 @@
+1) if 1 rfid tags gets read by 1 reader, it measn it is at that location, it is reader again and read at exit it mean it has left the facility, if after exit from zone a it has been scanned at zone b, it means it has trasnfered position from zone a to b.
+
+2) add dropdown for registeration of new assest saving time
+
+3) if the category is food or consumables, the espiry date to be added shall be compulsory or you cant add item
+
+4) 
