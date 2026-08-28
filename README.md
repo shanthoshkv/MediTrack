@@ -48,7 +48,7 @@ Column names are resolved through helper functions like `patient_cols()` / `item
 - `get_rfid/` — standalone sketch to read out a tag's UID over Serial, used to register new tags before wiring them into the system
 - `iteration 1/` — an earlier, more sprawling version of the backend (separate files per concern, `zona_a_code`/`zona_b_code` readers) kept for reference, not the version to deploy
 - `rfid_tags.txt` — UID log captured from `get_rfid` while registering tags
-- `meditrack_report.pdf` — write-up submitted for the course this was built for
+- `docs/meditrack_report.pdf` — write-up submitted for the course this was built for, covers the same architecture and schema as this README plus the hospital-workflow motivation in more detail
 
 ## Running it
 
@@ -66,3 +66,12 @@ Column names are resolved through helper functions like `patient_cols()` / `item
 - The unresolved-tag / offline-queue path (`offline_queue.php`) exists in the schema and helper functions but isn't fully wired into every scan path, some untracked UIDs currently just raise an "unknown tag" alert instead of queuing.
 
 No automated tests, this was validated by scanning real tags against the running dashboard and checking that patient location, alerts, and the medication/vitals/IV tables updated correctly.
+
+## Data model
+
+The schema (see `meditrack_compact.sql`) centers on a `tags` table (UID → patient/staff/item reference) and a `movements` log that every scan appends to. `locations` maps `reader_id` to a physical zone and holds the per-reader `api_key` checked in `scan.php`. Alerts, tasks, medication schedules, IV records and vitals each have their own table, all keyed back to the patient. Because `meditrack_compact/` and `iteration 1/` evolved their column naming independently (one iteration used `snake_case`, the other a flatter `nocase` convention), `core.php`'s `patient_cols()`/`item_cols()` helpers probe the live schema at runtime and adapt rather than assuming one naming convention, that's what lets the same `meditrack_compact/` code run against either a fresh `meditrack_compact.sql` import or an older dump without a migration step.
+
+## References
+
+- [ESP-MFRC522 library](https://github.com/miguelbalboa/rfid) — Arduino RFID reader driver used in all three firmware sketches
+- `docs/meditrack_report.pdf` — full project write-up (problem framing, hospital workflow, schema, and results from the course submission)
